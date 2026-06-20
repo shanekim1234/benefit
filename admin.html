@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>생활토크 혜택관 관리자</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f3eee5;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;color:#061b38}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+h1{font-size:28px;margin:10px 0 14px}
+.panel{background:#fff;border:1px solid #eadfcb;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,.06)}
+label{display:block;font-weight:800;margin:10px 0 5px}
+input{width:100%;font-size:18px;padding:12px;border:1px solid #cfd4dc;border-radius:10px}
+button{border:0;border-radius:10px;padding:13px 16px;font-size:18px;font-weight:900;cursor:pointer}
+.primary{background:#061b38;color:white}
+.gold{background:#c49324;color:white}
+.gray{background:#eef2f6;color:#061b38}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:#fff;border:1px solid #eadfcb;border-radius:16px;padding:14px;margin-bottom:12px}
+.card h2{margin:0 0 10px;font-size:22px}
+.preview{width:140px;height:100px;object-fit:contain;background:#fff8ed;border-radius:10px;border:1px solid #eee}
+.topbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.notice{font-size:14px;color:#555;line-height:1.5}
+.status{padding:12px;border-radius:10px;margin-top:10px;background:#eef7ee;color:#165b22;display:none}
+.error{background:#fff0f0;color:#8a1f1f}
+@media(max-width:650px){.row{grid-template-columns:1fr} button{width:100%;margin-top:6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>생활토크 혜택관 관리자</h1>
+
+  <div class="panel">
+    <b>처음 한 번만 설정</b>
+    <p class="notice">
+      GitHub 토큰은 이 기기 브라우저에만 저장됩니다. 저장 버튼을 누르면 GitHub의 data.json이 자동 수정됩니다.
+    </p>
+    <div class="row">
+      <div><label>GitHub 아이디</label><input id="owner" value="shanekim1234"></div>
+      <div><label>저장소 이름</label><input id="repo" value="benefit"></div>
+    </div>
+    <label>GitHub 토큰</label><input id="token" type="password" placeholder="github_pat_...">
+    <div class="topbar">
+      <button class="gray" onclick="saveConfig()">설정 저장</button>
+      <button class="gray" onclick="loadFromGitHub()">현재 제품 불러오기</button>
+      <button class="primary" onclick="saveToGitHub()">전체 저장</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>주문 연결 정보</h2>
+    <label>전화번호</label><input id="phoneNumber">
+    <label>카카오톡 링크</label><input id="kakaoUrl">
+    <label>문자 기본내용</label><input id="smsText">
+  </div>
+
+  <div id="productArea"></div>
+
+  <div class="panel">
+    <button class="primary" onclick="saveToGitHub()">전체 저장</button>
+    <p class="notice">저장 후 30초~2분 정도 지나면 혜택관 페이지에 반영됩니다.</p>
+  </div>
+</div>
+
+<script>
+let currentData = null;
+let currentSha = null;
+
+function show(msg, isError=false){
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = "status" + (isError ? " error" : "");
+  el.style.display = "block";
+}
+
+function saveConfig(){
+  localStorage.setItem("benefit_owner", document.getElementById("owner").value.trim());
+  localStorage.setItem("benefit_repo", document.getElementById("repo").value.trim());
+  localStorage.setItem("benefit_token", document.getElementById("token").value.trim());
+  show("설정 저장 완료");
+}
+
+function loadConfig(){
+  document.getElementById("owner").value = localStorage.getItem("benefit_owner") || "shanekim1234";
+  document.getElementById("repo").value = localStorage.getItem("benefit_repo") || "benefit";
+  document.getElementById("token").value = localStorage.getItem("benefit_token") || "";
+}
+
+async function loadFromGitHub(){
+  saveConfig();
+  const owner = document.getElementById("owner").value.trim();
+  const repo = document.getElementById("repo").value.trim();
+  const token = document.getElementById("token").value.trim();
+
+  try{
+    show("불러오는 중...");
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data.json`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
+    });
+    if(!res.ok) throw new Error("GitHub에서 data.json을 불러오지 못했습니다.");
+    const json = await res.json();
+    currentSha = json.sha;
+    const text = decodeURIComponent(escape(atob(json.content.replace(/\n/g,""))));
+    currentData = JSON.parse(text);
+    fillForm();
+    show("현재 제품 불러오기 완료");
+  }catch(e){
+    show(e.message, true);
+  }
+}
+
+function fillForm(){
+  const s = currentData.settings || {};
+  document.getElementById("phoneNumber").value = s.phoneNumber || "";
+  document.getElementById("kakaoUrl").value = s.kakaoUrl || "";
+  document.getElementById("smsText").value = s.smsText || "";
+
+  const area = document.getElementById("productArea");
+  area.innerHTML = "";
+  currentData.products.forEach((p, i)=>{
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `
+      <h2>${i+1}번 제품</h2>
+      <img class="preview" id="preview${i}" src="${p.image || ""}">
+      <label>사진 선택</label>
+      <input type="file" accept="image/*" onchange="changeImage(event, ${i})">
+      <label>브랜드</label><input id="brand${i}" value="${escapeHtml(p.brand || "")}">
+      <label>제품명</label><input id="name${i}" value="${escapeHtml(p.name || "")}">
+      <div class="row">
+        <div><label>시중가</label><input id="market${i}" value="${escapeHtml(p.marketPrice || "")}"></div>
+        <div><label>혜택가</label><input id="benefit${i}" value="${escapeHtml(p.benefitPrice || "")}"></div>
+      </div>
+    `;
+    area.appendChild(div);
+  });
+}
+
+function escapeHtml(str){
+  return String(str).replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+function changeImage(event, index){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    currentData.products[index].image = reader.result;
+    document.getElementById("preview"+index).src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function collectForm(){
+  currentData.settings = {
+    phoneNumber: document.getElementById("phoneNumber").value.trim(),
+    kakaoUrl: document.getElementById("kakaoUrl").value.trim(),
+    smsText: document.getElementById("smsText").value.trim()
+  };
+  currentData.products.forEach((p,i)=>{
+    p.brand = document.getElementById("brand"+i).value.trim();
+    p.name = document.getElementById("name"+i).value.trim();
+    p.marketPrice = document.getElementById("market"+i).value.trim();
+    p.benefitPrice = document.getElementById("benefit"+i).value.trim();
+  });
+}
+
+function toBase64Utf8(str){
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+async function saveToGitHub(){
+  if(!currentData){
+    show("먼저 현재 제품 불러오기를 눌러주세요.", true);
+    return;
+  }
+  saveConfig();
+  collectForm();
+
+  const owner = document.getElementById("owner").value.trim();
+  const repo = document.getElementById("repo").value.trim();
+  const token = document.getElementById("token").value.trim();
+
+  try{
+    show("저장 중...");
+    const body = {
+      message: "혜택관 제품정보 수정",
+      content: toBase64Utf8(JSON.stringify(currentData, null, 2)),
+      sha: currentSha
+    };
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data.json`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){
+      const err = await res.text();
+      throw new Error("저장 실패: 토큰 권한 또는 저장소명을 확인하세요.");
+    }
+    const json = await res.json();
+    currentSha = json.content.sha;
+    show("저장 완료. 30초~2분 후 혜택관에 반영됩니다.");
+  }catch(e){
+    show(e.message, true);
+  }
+}
+
+loadConfig();
+loadFromGitHub();
+</script>
+</body>
+</html>
